@@ -1,0 +1,48 @@
+name: Build APK
+on:
+  push:
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Unpack zip
+        run: |
+          for z in *.zip; do
+            [ -f "$z" ] || continue
+            echo "Unpacking: $z"
+            unzip -o -q "$z"
+          done
+      - name: Restore folder structure
+        run: |
+          for f in *__*; do
+            [ -f "$f" ] || continue
+            t="${f//__//}"
+            mkdir -p "$(dirname "$t")"
+            mv "$f" "$t"
+          done
+          ls -R app | head -60
+      - name: Check project files
+        run: |
+          ls -la
+          for f in settings.gradle build.gradle gradle.properties keystore.properties app/build.gradle app/rasad-release.jks app/src/main/AndroidManifest.xml app/src/main/assets/www/index.html; do
+            [ -e "$f" ] || { echo "::error::Missing file: $f"; MISSING=1; }
+          done
+          [ -z "$MISSING" ] || exit 1
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.7
+      - name: Build APK
+        run: |
+          gradle assembleRelease --no-daemon --stacktrace || { echo "::warning::Release build FAILED - building DEBUG apk instead (it cannot update an installed release version)"; gradle assembleDebug --no-daemon --stacktrace; }
+      - name: Show built APKs
+        run: ls -la app/build/outputs/apk/*/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Rasad-APK
+          path: app/build/outputs/apk/**/*.apk
